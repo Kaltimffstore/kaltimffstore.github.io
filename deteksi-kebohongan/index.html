@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pendeteksi Kebohongan v12.1 (Perbaikan Inisialisasi Kamera)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Orbitron:wght@400;700&family=Source+Code+Pro:wght@400&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #0c101d; }
+        .font-orbitron { font-family: 'Orbitron', sans-serif; }
+        .font-mono-sc { font-family: 'Source Code Pro', monospace; }
+        .card-glow-green { box-shadow: 0 0 20px rgba(34, 197, 94, 0.7), 0 0 8px rgba(34, 197, 94, 0.5); }
+        .card-glow-red { box-shadow: 0 0 20px rgba(239, 68, 68, 0.7), 0 0 8px rgba(239, 68, 68, 0.5); }
+        .card-glow-yellow { box-shadow: 0 0 20px rgba(250, 204, 21, 0.7), 0 0 8px rgba(250, 204, 21, 0.5); }
+        .card-glow-orange { box-shadow: 0 0 20px rgba(249, 115, 22, 0.7), 0 0 8px rgba(249, 115, 22, 0.5); }
+        .text-glow-green { text-shadow: 0 0 8px rgba(34, 197, 94, 0.9); }
+        .text-glow-red { text-shadow: 0 0 8px rgba(239, 68, 68, 0.9); }
+        .text-glow-yellow { text-shadow: 0 0 8px rgba(250, 204, 21, 0.9); }
+        .text-glow-orange { text-shadow: 0 0 8px rgba(249, 115, 22, 0.9); }
+        #video-container { position: relative; width: 100%; aspect-ratio: 16 / 9; background-color: black; border-radius: 0.375rem; overflow: hidden; }
+        #video, #faceCanvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: contain; transform: scaleX(-1); }
+        .pulsing-mic { animation: pulse-mic 1.5s infinite ease-in-out; }
+        @keyframes pulse-mic { 0%, 100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.1); opacity: 0.7; } }
+        #systemLog { scrollbar-width: thin; scrollbar-color: #4f4f4f #1f2937; }
+        #systemLog::-webkit-scrollbar { width: 5px; } #systemLog::-webkit-scrollbar-track { background: #1f2937; } #systemLog::-webkit-scrollbar-thumb { background-color: #4f4f4f; border-radius: 6px; }
+        .fade-in { animation: fadeIn 0.5s ease-in; }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        .quality-indicator { transition: all 0.3s ease; }
+        .quality-good { background: linear-gradient(90deg, #10b981, #34d399); }
+        .quality-warning { background: linear-gradient(90deg, #f59e0b, #fbbf24); }
+        .quality-poor { background: linear-gradient(90deg, #ef4444, #f87171); }
+    </style>
+</head>
+<body class="bg-gray-900 text-gray-200 min-h-screen p-4">
+
+    <div class="max-w-4xl mx-auto">
+        <div id="main-card" class="bg-gray-800/50 backdrop-blur-sm border border-gray-700 rounded-2xl p-6 md:p-8 shadow-2xl transition-all duration-500 relative">
+            <div class="text-center mb-6">
+                <h1 class="text-3xl md:text-4xl font-bold text-white tracking-wider font-orbitron">POLYGRAPH-V.12.1</h1>
+                <p class="text-blue-400 font-mono text-sm">Akurasi yang Ditingkatkan</p>
+            </div>
+            
+            <div id="baseline-section" class="bg-gray-900/70 p-4 rounded-lg border border-gray-700 mb-6">
+                <p class="text-sm font-mono text-center text-green-400 mb-3">BASELINE PERSONALIZATION</p>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-center items-center">
+                    <div><p class="text-xs text-gray-400 mb-1">Status Baseline</p><p id="baseline-status" class="text-sm font-bold text-yellow-400">Belum Dikalibrasi</p></div>
+                    <div><button id="calibrateBtn" class="bg-green-600 hover:bg-green-500 text-white font-bold py-2 px-4 rounded text-sm transition-all">Kalibrasi Baseline</button></div>
+                    <div><p class="text-xs text-gray-400 mb-1">Durasi</p><p id="calibration-time" class="text-sm">0/5 detik</p></div>
+                </div>
+                <div id="baseline-progress" class="w-full bg-gray-700 rounded-full h-2 mt-3 hidden"><div id="baseline-progress-bar" class="h-2 rounded-full bg-green-500 transition-all duration-1000" style="width: 0%"></div></div>
+            </div>
+
+            <div class="bg-gray-900/70 p-3 rounded-lg border border-gray-700 mb-6"><p class="text-sm font-mono text-center text-gray-400 mb-2">LOG SISTEM</p><div id="systemLog" class="h-24 overflow-y-auto bg-black rounded-md p-2 text-xs font-mono-sc text-green-400 space-y-1"></div></div>
+
+            <div id="question-database" class="bg-gray-900/50 p-4 rounded-lg border border-gray-700 mb-6">
+                <p class="text-sm font-mono text-center text-purple-300 mb-3">CONTEXTUAL QUESTION DATABASE</p>
+                <div class="flex flex-wrap gap-2 mb-3 justify-center">
+                    <button class="question-preset bg-purple-600 hover:bg-purple-500 text-white text-xs py-1 px-3 rounded transition-all" data-question="Apa yang Anda lakukan tadi pagi?">Pertanyaan Netral</button>
+                    <button class="question-preset bg-blue-600 hover:bg-blue-500 text-white text-xs py-1 px-3 rounded transition-all" data-question="Apakah Anda mengatakan yang sebenarnya?">Verifikasi Kejujuran</button>
+                    <button class="question-preset bg-red-600 hover:bg-red-500 text-white text-xs py-1 px-3 rounded transition-all" data-question="Apakah Anda menyembunyikan informasi penting?">Penyembunyian Informasi</button>
+                    <button class="question-preset bg-orange-600 hover:bg-orange-500 text-white text-xs py-1 px-3 rounded transition-all" data-question="Di mana Anda berada kemarin malam?">Verifikasi Lokasi</button>
+                </div>
+                <input id="questionInput" type="text" placeholder="Masukkan pertanyaan utama Anda atau pilih dari preset..." class="w-full bg-gray-700 border border-gray-600 rounded-md p-3 text-white placeholder-gray-400 focus:ring-2 focus:ring-blue-500 focus:outline-none transition">
+            </div>
+
+            <div id="quality-check" class="bg-gray-900/50 p-4 rounded-lg border border-gray-700 mb-6 hidden">
+                <p class="text-sm font-mono text-center text-cyan-300 mb-3">REAL-TIME DATA QUALITY CHECK</p>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-center">
+                    <div class="quality-item"><p class="text-xs text-gray-400 mb-1">Kualitas Video</p><div class="quality-indicator h-2 rounded-full mb-1 quality-poor" id="video-quality-bar"></div><p id="video-quality-text" class="text-xs">Memeriksa...</p></div>
+                    <div class="quality-item"><p class="text-xs text-gray-400 mb-1">Kualitas Audio</p><div class="quality-indicator h-2 rounded-full mb-1 quality-poor" id="audio-quality-bar"></div><p id="audio-quality-text" class="text-xs">Memeriksa...</p></div>
+                    <div class="quality-item"><p class="text-xs text-gray-400 mb-1">Stabilitas Wajah</p><div class="quality-indicator h-2 rounded-full mb-1 quality-poor" id="face-quality-bar"></div><p id="face-quality-text" class="text-xs">Memeriksa...</p></div>
+                </div>
+            </div>
+
+            <div class="bg-gray-900/50 p-4 rounded-lg border border-gray-700 text-center mb-6">
+                <div id="status-container" class="text-lg mb-4 h-8 transition-opacity duration-300 flex items-center justify-center"><p id="status">Siap Menerima Perintah</p></div>
+                <button id="startButton" class="bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 px-8 rounded-lg text-lg transition-all duration-300 shadow-lg hover:shadow-blue-500/50 disabled:bg-gray-500 disabled:cursor-not-allowed disabled:shadow-none">Mulai Interogasi</button>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
+                <div id="visual-panel" class="bg-gray-900/50 p-4 rounded-lg border border-gray-700">
+                    <p class="text-sm font-mono text-center text-cyan-400 mb-2">ANALISIS VISUAL & PERILAKU</p>
+                    <div id="video-container"><video id="video" autoplay muted playsinline></video><canvas id="faceCanvas"></canvas><div id="video-loader" class="absolute inset-0 flex items-center justify-center bg-black bg-opacity-75 z-10"><p>Menginisialisasi modul visual...</p></div></div>
+                </div>
+                <div class="bg-gray-900/50 p-4 rounded-lg border border-gray-700 flex flex-col justify-between">
+                    <p class="text-sm font-mono text-center text-yellow-300 mb-2">ANALISIS FISIOLOGIS REAL-TIME</p>
+                    <div class="flex-grow flex items-center justify-center"><canvas id="stressMeterCanvas" width="200" height="200"></canvas></div>
+                    <div class="flex justify-around w-full text-center text-xs mt-2">
+                        <div><p class="text-gray-400">JITTER</p><p id="vocal-jitter" class="font-bold text-base">0.00 %</p></div>
+                        <div><p class="text-gray-400">SHIMMER</p><p id="vocal-shimmer" class="font-bold text-base">0.00 %</p></div>
+                        <div><p class="text-gray-400">BPM</p><p id="bpm" class="font-bold text-base">--</p></div>
+                    </div>
+                </div>
+            </div>
+            
+            <div id="xai-dashboard" class="hidden mt-6 bg-gray-900/50 p-4 rounded-lg border border-gray-700">
+                <p class="text-sm font-mono text-center text-green-300 mb-3">EXPLAINABLE AI DASHBOARD</p>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div class="bg-gray-800/50 p-3 rounded-lg"><p class="text-xs text-gray-400 mb-2">FAKTOR KONTRIBUSI</p><div id="factor-contributions" class="space-y-2"></div></div>
+                    <div class="bg-gray-800/50 p-3 rounded-lg"><p class="text-xs text-gray-400 mb-2">ANOMALI TERDETEKSI</p><div id="detected-anomalies" class="space-y-1 text-sm"></div></div>
+                </div>
+            </div>
+            
+            <div id="resultSection" class="hidden mt-6 space-y-4 opacity-0 transition-opacity duration-500">
+                <div class="bg-gray-900/50 p-4 rounded-lg border border-gray-700"><p class="text-sm text-gray-400 text-center">Pertanyaan yang dianalisis:</p><p id="askedQuestion" class="text-center text-lg italic text-white"></p></div>
+                <div id="result" class="text-center text-4xl font-bold tracking-widest font-orbitron"><p id="resultText"></p></div>
+                <div class="bg-gray-900/50 p-4 rounded-lg border border-gray-700"><p class="text-sm font-mono text-center mb-4 text-blue-300">RINCIAN DATA BIOMETRIK & PERILAKU</p><div id="detailsContent" class="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4 text-sm"></div></div>
+                <div class="bg-gray-900/50 p-4 rounded-lg border border-gray-700"><p class="text-sm font-mono text-center mb-2 text-cyan-300">KESIMPULAN ANALISIS NARATIF</p><p id="conclusionText" class="text-center text-gray-300"></p></div>
+                <div class="bg-gray-900/50 p-4 rounded-lg border border-gray-700"><p class="text-sm font-mono text-center mb-2 text-purple-300">TINGKAT PROBABILITAS KEBOHONGAN</p><div class="w-full bg-gray-700 rounded-full h-2.5 mt-2"><div id="probabilityBar" class="h-2.5 rounded-full" style="width: 0%"></div></div><p id="probabilityText" class="text-center text-lg font-bold mt-1"></p><p id="probabilityLabel" class="text-center text-sm font-semibold"></p></div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const ui = { /* ... UI elements unchanged ... */ video: document.getElementById('video'), faceCanvas: document.getElementById('faceCanvas'), videoLoader: document.getElementById('video-loader'), startButton: document.getElementById('startButton'), statusContainer: document.getElementById('status-container'), resultSection: document.getElementById('resultSection'), resultText: document.getElementById('resultText'), mainCard: document.getElementById('main-card'), questionInput: document.getElementById('questionInput'), askedQuestion: document.getElementById('askedQuestion'), detailsContent: document.getElementById('detailsContent'), conclusionText: document.getElementById('conclusionText'), probabilityBar: document.getElementById('probabilityBar'), probabilityText: document.getElementById('probabilityText'), probabilityLabel: document.getElementById('probabilityLabel'), systemLog: document.getElementById('systemLog'), bpm: document.getElementById('bpm'), vocalJitter: document.getElementById('vocal-jitter'), vocalShimmer: document.getElementById('vocal-shimmer'), stressMeterCanvas: document.getElementById('stressMeterCanvas'), baselineSection: document.getElementById('baseline-section'), baselineStatus: document.getElementById('baseline-status'), calibrateBtn: document.getElementById('calibrateBtn'), calibrationTime: document.getElementById('calibration-time'), baselineProgress: document.getElementById('baseline-progress'), baselineProgressBar: document.getElementById('baseline-progress-bar'), questionDatabase: document.getElementById('question-database'), qualityCheck: document.getElementById('quality-check'), videoQualityBar: document.getElementById('video-quality-bar'), videoQualityText: document.getElementById('video-quality-text'), audioQualityBar: document.getElementById('audio-quality-bar'), audioQualityText: document.getElementById('audio-quality-text'), faceQualityBar: document.getElementById('face-quality-bar'), faceQualityText: document.getElementById('face-quality-text'), xaiDashboard: document.getElementById('xai-dashboard'), factorContributions: document.getElementById('factor-contributions'), detectedAnomalies: document.getElementById('detected-anomalies') };
+            const faceCanvasCtx = ui.faceCanvas.getContext('2d');
+            const stressMeterCtx = ui.stressMeterCanvas.getContext('2d');
+            
+            let state = { appState: 'idle', mediaStream: null, audioContext: null, analyser: null, dataArray: null, faceMeshState: 'standby', baselineCalibration: { inProgress: false, completed: false, startTime: 0, duration: 5000 }, dataQuality: { video: 0, audio: 0, face: 0, lastCheck: 0 }, listeningStartTime: 0 };
+            let baseline = { heartRate: 75, blinkRate: 20, vocalJitter: 1.0, vocalShimmer: 2.0, headMovement: 0.02, established: false, calibrationData: { heartRates: [], blinkRates: [], jitters: [], shimmers: [], movements: [] } };
+            let biometricData = { blinks: 0, eyeOpen: true, microExpressions: 0, lastLandmarks: null, heartRate: 0, rppgData: [], rppgLastPeak: 0, vocalJitter: 0, vocalShimmer: 0, analysisStore: { heartRates: [], blinks: 0, microExpressions: 0, jitters: [], shimmers: [], excessiveMovements: 0 }, lastNosePos: null, headMovements: [], movementScore: 0, dataQuality: { video: 0, audio: 0, face: 0 }, anomalyFlags: { heartRate: false, blinkRate: false, vocal: false, movement: false, microExpression: false } };
+            const tempCanvas = document.createElement('canvas'); const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true });
+            let realtimeStressLevel = 0;
+
+            function log(message, type = 'INFO') { /* ... */ const now = new Date(); const ts = `${now.getHours().toString().padStart(2,'0')}:${now.getMinutes().toString().padStart(2,'0')}:${now.getSeconds().toString().padStart(2,'0')}`; const color = type==='ERROR'?'text-red-500':type==='WARN'?'text-yellow-400':'text-green-400'; ui.systemLog.innerHTML += `<p><span class="text-gray-500">[${ts}]</span> <span class="${color}">${message}</span></p>`; ui.systemLog.scrollTop = ui.systemLog.scrollHeight; }
+            function setStatus(text, isListening = false) { /* ... */ if(isListening){ui.statusContainer.innerHTML=`<svg class="w-6 h-6 mr-2 text-yellow-400 pulsing-mic" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M7 4a3 3 0 016 0v4a3 3 0 11-6 0V4zm4 10.93V17h-2v-2.07A8.001 8.001 0 012 8V7h2v1a6 6 0 1012 0V7h2v1a8.001 8.001 0 01-5 7.93z" clip-rule="evenodd"></path></svg><p id="status" class="text-yellow-400">${text}</p>`;}else{ui.statusContainer.innerHTML=`<p id="status">${text}</p>`;}}
+            const getDistance = (p1, p2) => Math.sqrt(Math.pow(p1.x-p2.x,2)+Math.pow(p1.y-p2.y,2)+Math.pow(p1.z-p2.z,2));
+            const getEAR = (landmarks, indices) => (getDistance(landmarks[indices[1]], landmarks[indices[5]]) + getDistance(landmarks[indices[2]], landmarks[indices[4]])) / (2 * getDistance(landmarks[indices[0]], landmarks[indices[3]]));
+            const clamp = (num, min, max) => Math.min(Math.max(num, min), max);
+
+            function startBaselineCalibration() { /* ... */ if(state.baselineCalibration.inProgress)return; state.baselineCalibration.inProgress=true; state.baselineCalibration.startTime=Date.now(); baseline.calibrationData={heartRates:[],blinkRates:[],jitters:[],shimmers:[],movements:[]}; ui.baselineProgress.classList.remove('hidden'); ui.calibrateBtn.disabled=true; ui.baselineStatus.textContent="Kalibrasi..."; ui.baselineStatus.className="text-sm font-bold text-yellow-400"; log('Memulai kalibrasi baseline personal...','INFO'); setStatus("Tetap tenang selama kalibrasi..."); const interval=setInterval(()=>{const elapsed=Date.now()-state.baselineCalibration.startTime; const progress=(elapsed/state.baselineCalibration.duration)*100; ui.baselineProgressBar.style.width=`${progress}%`; ui.calibrationTime.textContent=`${Math.round(elapsed/1000)}/5 detik`; if(biometricData.heartRate > 40 && biometricData.heartRate < 150)baseline.calibrationData.heartRates.push(biometricData.heartRate); biometricData.analysisStore.blinks=0; const blinkRate=state.listeningStartTime > 0 ? biometricData.analysisStore.blinks / ((Date.now()-state.listeningStartTime)/60000) : 0; baseline.calibrationData.blinkRates.push(blinkRate); baseline.calibrationData.jitters.push(biometricData.vocalJitter); baseline.calibrationData.shimmers.push(biometricData.vocalShimmer); baseline.calibrationData.movements.push(biometricData.movementScore); if(elapsed>=state.baselineCalibration.duration){clearInterval(interval); finishBaselineCalibration();}},100);}
+            function finishBaselineCalibration() { /* ... */ baseline.heartRate=baseline.calibrationData.heartRates.length?baseline.calibrationData.heartRates.reduce((a,b)=>a+b)/baseline.calibrationData.heartRates.length:75; baseline.blinkRate=baseline.calibrationData.blinkRates.length?baseline.calibrationData.blinkRates.reduce((a,b)=>a+b)/baseline.calibrationData.blinkRates.length:20; baseline.vocalJitter=baseline.calibrationData.jitters.length?baseline.calibrationData.jitters.reduce((a,b)=>a+b)/baseline.calibrationData.jitters.length:1; baseline.vocalShimmer=baseline.calibrationData.shimmers.length?baseline.calibrationData.shimmers.reduce((a,b)=>a+b)/baseline.calibrationData.shimmers.length:2; baseline.headMovement=baseline.calibrationData.movements.length?baseline.calibrationData.movements.reduce((a,b)=>a+b)/baseline.calibrationData.movements.length:.02; baseline.established=true; state.baselineCalibration.inProgress=false; state.baselineCalibration.completed=true; ui.baselineProgress.classList.add('hidden'); ui.calibrateBtn.disabled=false; ui.baselineStatus.textContent="Terkalibrasi"; ui.baselineStatus.className="text-sm font-bold text-green-400"; ui.calibrationTime.textContent="Selesai"; log(`Baseline personal berhasil: HR ${baseline.heartRate.toFixed(0)} BPM, Blink ${baseline.blinkRate.toFixed(1)} kpm`,'SUCCESS'); setStatus("Baseline selesai. Siap untuk interogasi.");}
+            function assessDataQuality() { /* ... */ if(Date.now()-state.dataQuality.lastCheck<1000)return; state.dataQuality.lastCheck=Date.now(); let videoQuality=0; if(ui.video.readyState>=3&&ui.video.videoWidth>0){tempCanvas.width=ui.video.videoWidth; tempCanvas.height=ui.video.videoHeight; tempCtx.drawImage(ui.video,0,0,tempCanvas.width,tempCanvas.height); const data=tempCtx.getImageData(0,0,tempCanvas.width,tempCanvas.height).data; let brightness=0; for(let i=0;i<data.length;i+=4){brightness+=(data[i]+data[i+1]+data[i+2])/3;} brightness/=(data.length/4); videoQuality=clamp((brightness/255)*100,0,100);} let audioQuality=0; if(state.analyser&&state.dataArray){let sum=0; for(let i=0;i<state.dataArray.length;i++){sum+=Math.abs(state.dataArray[i]-128);} const average=sum/state.dataArray.length; audioQuality=clamp((average/128)*100,0,100);} let faceQuality=biometricData.lastLandmarks?80:20; updateQualityIndicator(ui.videoQualityBar,ui.videoQualityText,videoQuality,"Video"); updateQualityIndicator(ui.audioQualityBar,ui.audioQualityText,audioQuality,"Audio"); updateQualityIndicator(ui.faceQualityBar,ui.faceQualityText,faceQuality,"Wajah"); biometricData.dataQuality={video:videoQuality,audio:audioQuality,face:faceQuality}; const overallQuality=(videoQuality+audioQuality+faceQuality)/3; if(overallQuality<60&&state.appState==='listening'){ui.qualityCheck.classList.remove('hidden'); log('Peringatan: Kualitas data rendah dapat mempengaruhi akurasi','WARN');}else if(overallQuality>=80){ui.qualityCheck.classList.add('hidden');}}
+            function updateQualityIndicator(bar,text,quality,label){/* ... */ bar.className='quality-indicator h-2 rounded-full mb-1 '; if(quality>=70)bar.classList.add('quality-good'); else if(quality>=40)bar.classList.add('quality-warning'); else bar.classList.add('quality-poor'); bar.style.width=`${quality}%`; text.textContent=`${label}: ${quality.toFixed(0)}%`;}
+            function performDataFusion(data){/* ... */ const factors={heartRate:{weight:.2,value:0},blinkRate:{weight:.25,value:0},vocalStability:{weight:.2,value:0},movement:{weight:.15,value:0},microExpressions:{weight:.2,value:0}}; const hrDev=data.avgHr-baseline.heartRate; factors.heartRate.value=clamp(Math.abs(hrDev)/25,0,1); const blinkDev=data.avgBlink-baseline.blinkRate; factors.blinkRate.value=clamp(Math.abs(blinkDev)/20,0,1); const vocalScore=(data.avgJitter-baseline.vocalJitter)/2+(data.avgShimmer-baseline.vocalShimmer)/4; factors.vocalStability.value=clamp(vocalScore,0,1); factors.movement.value=clamp(data.movementCount/10,0,1); factors.microExpressions.value=clamp(data.microCount/5,0,1); let score=0; for(const f in factors){score+=factors[f].value*factors[f].weight*100;} return{lieScore:clamp(score,0,100),factors};}
+            function updateXAIDashboard(factors,anomalies){/* ... */ ui.xaiDashboard.classList.remove('hidden'); ui.xaiDashboard.classList.add('fade-in'); ui.factorContributions.innerHTML=''; for(const[factor,data] of Object.entries(factors)){const contribution=(data.value*data.weight*100).toFixed(1); const width=clamp(data.value*100,0,100); let color='bg-green-500'; if(data.value>.7)color='bg-red-500'; else if(data.value>.4)color='bg-yellow-500'; ui.factorContributions.innerHTML+=`<div class="flex items-center justify-between"><span class="text-xs text-gray-300 capitalize">${factor.replace(/([A-Z])/g,' $1')}</span><span class="text-xs font-bold">${contribution}%</span></div><div class="w-full bg-gray-700 rounded-full h-1.5"><div class="h-1.5 rounded-full ${color} transition-all duration-500" style="width: ${width}%"></div></div>`;} ui.detectedAnomalies.innerHTML=''; const msgs={heartRate:"Detak jantung tidak normal",blinkRate:"Frekuensi kedipan abnormal",vocal:"Ketidakstabilan vokal",movement:"Gerakan berlebihan",microExpression:"Ekspresi mikro"}; for(const[anomaly,detected] of Object.entries(anomalies)){if(detected){ui.detectedAnomalies.innerHTML+=`<div class="flex items-center"><div class="w-2 h-2 bg-red-500 rounded-full mr-2"></div><span class="text-red-300 text-xs">${msgs[anomaly]||anomaly}</span></div>`;}} if(Object.values(anomalies).filter(v=>v).length===0){ui.detectedAnomalies.innerHTML=`<div class="flex items-center"><div class="w-2 h-2 bg-green-500 rounded-full mr-2"></div><span class="text-green-300 text-xs">Tidak ada anomali</span></div>`;}}
+            function setupQuestionPresets(){document.querySelectorAll('.question-preset').forEach(b=>{b.addEventListener('click',function(){ui.questionInput.value=this.getAttribute('data-question'); log(`Preset dipilih: "${this.textContent}"`,'INFO');});});}
+            function adjustCanvasDimensions(){const v=ui.video,c=ui.faceCanvas,vw=v.videoWidth,vh=v.videoHeight; if(c.width!==vw||c.height!==vh){c.width=vw; c.height=vh;}}
+
+            function onResults(results) {
+                adjustCanvasDimensions(); faceCanvasCtx.save(); faceCanvasCtx.clearRect(0, 0, ui.faceCanvas.width, ui.faceCanvas.height);
+                if (results.multiFaceLandmarks && results.multiFaceLandmarks[0]) {
+                    const landmarks = results.multiFaceLandmarks[0];
+                    const config = { color: '#00ffff', lineWidth: 1, ...{ analyzing: { color: '#fbbf24', lineWidth: 1.5 }, truth: { color: '#22c55e', lineWidth: 2 }, lie: { color: '#ef4444', lineWidth: 2 }, hesitant: { color: '#facc15', lineWidth: 1.5 }, stressed: { color: '#f97316', lineWidth: 2 } }[state.faceMeshState] };
+                    
+                    drawConnectors(faceCanvasCtx, landmarks, FACEMESH_TESSELATION, { color: config.color, lineWidth: 0.5 }); 
+                    drawConnectors(faceCanvasCtx, landmarks, FACEMESH_RIGHT_EYE, { color: config.color, lineWidth: config.lineWidth }); 
+                    drawConnectors(faceCanvasCtx, landmarks, FACEMESH_LEFT_EYE, { color: config.color, lineWidth: config.lineWidth }); 
+                    drawConnectors(faceCanvasCtx, landmarks, FACEMESH_LIPS, { color: config.color, lineWidth: config.lineWidth });
+                    
+                    const avgEAR = (getEAR(landmarks, [33, 160, 159, 133, 145, 158]) + getEAR(landmarks, [362, 385, 386, 263, 374, 387])) / 2;
+                    if (avgEAR < 0.2 && biometricData.eyeOpen) { if (state.appState === 'listening' || state.baselineCalibration.inProgress) { biometricData.analysisStore.blinks++; } biometricData.eyeOpen = false; } else if (avgEAR >= 0.25) { biometricData.eyeOpen = true; }
+                    if (biometricData.lastLandmarks) { if (getDistance(landmarks[13], landmarks[14]) > getDistance(biometricData.lastLandmarks[13], biometricData.lastLandmarks[14]) + 0.01) biometricData.microExpressions++; }
+                    biometricData.lastLandmarks = landmarks;
+                    
+                    const nose = landmarks[1];
+                    if (biometricData.lastNosePos) {
+                        const dist = getDistance(nose, biometricData.lastNosePos);
+                        biometricData.headMovements.push(dist); if(biometricData.headMovements.length > 10) biometricData.headMovements.shift();
+                        const sum = biometricData.headMovements.reduce((a,b) => a+b, 0);
+                        biometricData.movementScore = sum;
+                        if(sum > 0.05 && state.appState === 'listening') { biometricData.analysisStore.excessiveMovements++; }
+                    }
+                    biometricData.lastNosePos = nose;
+
+                    const foreheadTop = landmarks[10], fb = landmarks[151], fl = landmarks[284], fr = landmarks[54];
+                    if (foreheadTop && fb && fl && fr) {
+                        const rx = fl.x * ui.video.videoWidth, ry = foreheadTop.y * ui.video.videoHeight, rw = (fr.x - fl.x) * ui.video.videoWidth, rh = (fb.y - foreheadTop.y) * ui.video.videoHeight;
+                        tempCanvas.width = ui.video.videoWidth; tempCanvas.height = ui.video.videoHeight; tempCtx.drawImage(ui.video, 0, 0, tempCanvas.width, tempCanvas.height); const frameData = tempCtx.getImageData(rx, ry, rw, rh).data; let greenSum = 0; for (let i = 0; i < frameData.length; i += 4) { greenSum += frameData[i + 1]; }
+                        biometricData.rppgData.push(greenSum / (frameData.length / 4));
+                        if (biometricData.rppgData.length > 150) biometricData.rppgData.shift();
+                        if (biometricData.rppgData.length > 30) { const s = biometricData.rppgData.slice(-30).reduce((a,b)=>a+b,0)/30; const c = biometricData.rppgData[biometricData.rppgData.length-1]; const l = biometricData.rppgData[biometricData.rppgData.length-2]; if (c < s && l > s) { const time = performance.now() - biometricData.rppgLastPeak; if (time > 400 && time < 2000) { biometricData.heartRate = 60000/time; biometricData.rppgLastPeak = performance.now(); } } }
+                    }
+                    if (state.appState === 'listening' || state.baselineCalibration.inProgress) { 
+                        const hr = (biometricData.heartRate > 40 && biometricData.heartRate < 150) ? biometricData.heartRate : 0; 
+                        const store = state.appState === 'listening' ? biometricData.analysisStore : baseline.calibrationData;
+                        if (hr > 0) store.heartRates.push(hr); 
+                        if(state.appState === 'listening') store.microExpressions = biometricData.microExpressions; 
+                    }
+                } 
+                faceCanvasCtx.restore();
+            }
+
+            async function setupCamera() { try { log('Meminta izin akses media...'); state.mediaStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true }); log('Izin media diberikan.'); ui.video.srcObject = state.mediaStream; const camera = new Camera(ui.video, { onFrame: async () => { if (ui.video.readyState >= 3) { await faceMesh.send({ image: ui.video }); } }, width: 1280, height: 720 }); camera.start(); ui.video.onloadeddata = () => { ui.videoLoader.style.display = 'none'; log('Modul visual berhasil diinisialisasi.'); adjustCanvasDimensions(); }; } catch (err) { log('Gagal akses media. Cek izin browser.', 'ERROR'); ui.videoLoader.innerHTML = `<p class='text-red-500'>Error: Gagal akses media.</p>`; ui.startButton.disabled = true; } }
+            function setupAudio() { try { if (!state.audioContext) { log('Mengaktifkan modul audio...'); state.audioContext = new (window.AudioContext || window.webkitAudioContext)(); const source = state.audioContext.createMediaStreamSource(state.mediaStream); state.analyser = state.audioContext.createAnalyser(); state.analyser.fftSize = 2048; source.connect(state.analyser); state.dataArray = new Uint8Array(state.analyser.frequencyBinCount); log('Modul audio aktif.'); } if (state.audioContext.state === 'suspended') { state.audioContext.resume(); } } catch (e) { setStatus("Error audio!"); log('Gagal mengaktifkan modul audio.', 'ERROR'); state.appState = 'idle'; return false; } return true; }
+            function updateRealtimeStress() { if (!baseline.established || (state.appState !== 'listening' && !state.baselineCalibration.inProgress) ) { realtimeStressLevel = 0; return; } const hrDev = biometricData.heartRate - baseline.heartRate; const currentBlinkRate = (biometricData.analysisStore.blinks / ((Date.now() - state.listeningStartTime)/60000 + 0.01)); const blinkDev = currentBlinkRate - baseline.blinkRate; const hrScore = clamp(hrDev / 25, 0, 1) * 40; const blinkScore = clamp(blinkDev / 20, 0, 1) * 30; const jitterScore = clamp((biometricData.vocalJitter - baseline.vocalJitter) / 2, 0, 1) * 15; const shimmerScore = clamp((biometricData.vocalShimmer - baseline.vocalShimmer) / 4, 0, 1) * 15; realtimeStressLevel = clamp(hrScore + blinkScore + jitterScore + shimmerScore, 0, 100); }
+            function drawStressMeter() { const ctx = stressMeterCtx; const W = ui.stressMeterCanvas.width; const H = ui.stressMeterCanvas.height; const angle = (realtimeStressLevel / 100) * 1.5 * Math.PI; ctx.clearRect(0, 0, W, H); ctx.font = "bold 14px Orbitron"; ctx.fillStyle = "#9ca3af"; ctx.textAlign = "center"; ctx.fillText("TINGKAT STRES", W / 2, H - 20); ctx.beginPath(); ctx.strokeStyle = "#374151"; ctx.lineWidth = 15; ctx.arc(W / 2, H / 2, 70, 0.75 * Math.PI, 2.25 * Math.PI); ctx.stroke(); const gradient = ctx.createConicGradient(0.75 * Math.PI, W / 2, H / 2); gradient.addColorStop(0, "#22c55e"); gradient.addColorStop(0.5, "#facc15"); gradient.addColorStop(1, "#ef4444"); ctx.beginPath(); ctx.strokeStyle = gradient; ctx.arc(W / 2, H / 2, 70, 0.75 * Math.PI, 0.75 * Math.PI + angle); ctx.stroke(); ctx.font = "bold 40px Orbitron"; ctx.fillStyle = "#fff"; ctx.fillText(`${Math.round(realtimeStressLevel)}%`, W / 2, H / 2 + 15); }
+            
+            function mainLoop() {
+                requestAnimationFrame(mainLoop);
+                ui.bpm.textContent = (biometricData.heartRate > 40 && biometricData.heartRate < 150) ? Math.round(biometricData.heartRate) : "--";
+                if (state.analyser) {
+                    state.analyser.getByteTimeDomainData(state.dataArray);
+                    let periods = [], amplitudes = [], lastZeroCross = 0, peakAmplitude = 0, lastSign=0;
+                    for (let i=0;i<state.dataArray.length; i++) { const v=(state.dataArray[i]-128)/128.0; if(Math.abs(v)>peakAmplitude) peakAmplitude=Math.abs(v); const sign=Math.sign(v); if (sign!==lastSign&&lastSign!==0) { if(lastZeroCross>0) periods.push(i-lastZeroCross); lastZeroCross=i; amplitudes.push(peakAmplitude); peakAmplitude=0;} lastSign=sign;}
+                    if (periods.length>1) { const mean=periods.reduce((a,b)=>a+b)/periods.length; const jitter=periods.map(p=>Math.abs(p-mean)).reduce((a,b)=>a+b)/periods.length; biometricData.vocalJitter=(jitter/mean)*100;}else{biometricData.vocalJitter=0;}
+                    if (amplitudes.length>1) { const mean=amplitudes.reduce((a,b)=>a+b)/amplitudes.length; const shimmer=amplitudes.map(a=>Math.abs(a-mean)).reduce((a,b)=>a+b)/amplitudes.length; biometricData.vocalShimmer=(shimmer/mean)*100;}else{biometricData.vocalShimmer=0;}
+                    ui.vocalJitter.textContent = `${biometricData.vocalJitter.toFixed(2)} %`; ui.vocalShimmer.textContent = `${biometricData.vocalShimmer.toFixed(2)} %`;
+                    const store = state.appState === 'listening' ? biometricData.analysisStore : (state.baselineCalibration.inProgress ? baseline.calibrationData : null);
+                    if (store) { if (biometricData.vocalJitter > 0) store.jitters.push(biometricData.vocalJitter); if (biometricData.vocalShimmer > 0) store.shimmers.push(biometricData.vocalShimmer); }
+                }
+                assessDataQuality(); updateRealtimeStress(); drawStressMeter();
+            }
+
+            function startProcess() { if (ui.questionInput.value.trim() === "") { setStatus("Harap masukkan pertanyaan!"); log('Interogasi dibatalkan: tidak ada pertanyaan.', 'WARN'); return; } if (!baseline.established) { setStatus("Harap lakukan kalibrasi baseline terlebih dahulu!"); log('Interogasi dibatalkan: baseline belum dikalibrasi.', 'WARN'); return; } if (!setupAudio()) return; ui.startButton.disabled = true; ui.questionInput.disabled = true; ui.resultSection.classList.add('hidden', 'opacity-0'); ui.xaiDashboard.classList.add('hidden'); ui.mainCard.classList.remove('card-glow-green', 'card-glow-red', 'card-glow-yellow', 'card-glow-orange'); ui.askedQuestion.textContent = `"${ui.questionInput.value}"`; state.faceMeshState = 'standby'; log(`Interogasi dimulai. Pertanyaan: ${ui.questionInput.value}`); setStatus("Silakan jawab pertanyaan..."); setTimeout(startListeningPhase, 2000); }
+            function startListeningPhase() { state.appState = 'listening'; state.listeningStartTime = Date.now(); setStatus("MENDENGARKAN...", true); log('Memulai fase mendengarkan...'); biometricData.analysisStore = { heartRates: [], blinks: 0, microExpressions: 0, jitters: [], shimmers: [], excessiveMovements: 0 }; biometricData.microExpressions = 0; biometricData.headMovements = []; biometricData.lastNosePos = null; ui.startButton.textContent = "Hentikan Jawaban & Analisis"; ui.startButton.classList.remove('bg-blue-600', 'hover:bg-blue-500'); ui.startButton.classList.add('bg-red-600', 'hover:bg-red-500'); ui.startButton.disabled = false; }
+            function stopAndAnalyze() { state.appState = 'analyzing'; log('Perekaman dihentikan, memulai analisis.'); ui.startButton.disabled = true; setStatus(`Menganalisis data...`); state.faceMeshState = 'analyzing'; showResults(); }
+            function getMetricAssessment(metric, value) { if (metric === 'hr') { if (value > 20) return "Meningkat Tajam"; if (value > 10) return "Meningkat"; if (value < -10) return "Menurun"; return "Stabil"; } else if (metric === 'blink') { if (value > 15) return "Sangat Cepat"; if (value > 5) return "Cepat"; if (value < -5) return "Lambat"; return "Normal"; } else if (metric === 'vocal') { if (value > 20) return "Sangat Tidak Stabil"; if (value > 10) return "Tidak Stabil"; return "Stabil"; } else if (metric === 'movement') { if (value > 10) return "Tinggi"; if (value > 3) return "Terdeteksi"; return "Minimal"; } return "Normal"; }
+            function showResults() {
+                ui.resultSection.classList.remove('hidden'); setTimeout(() => ui.resultSection.classList.remove('opacity-0'), 100); log('Analisis selesai. Menampilkan hasil...');
+                const listeningDuration = (Date.now() - state.listeningStartTime) / 60000;
+                const avgHr = biometricData.analysisStore.heartRates.length > 0 ? biometricData.analysisStore.heartRates.reduce((a, b) => a + b, 0) / biometricData.analysisStore.heartRates.length : baseline.heartRate;
+                const avgBlink = listeningDuration > 0.01 ? biometricData.analysisStore.blinks / listeningDuration : baseline.blinkRate;
+                const avgJitter = biometricData.analysisStore.jitters.length > 0 ? biometricData.analysisStore.jitters.reduce((a, b) => a + b, 0) / biometricData.analysisStore.jitters.length : baseline.vocalJitter;
+                const avgShimmer = biometricData.analysisStore.shimmers.length > 0 ? biometricData.analysisStore.shimmers.reduce((a, b) => a + b, 0) / biometricData.analysisStore.shimmers.length : baseline.vocalShimmer;
+                const microCount = biometricData.analysisStore.microExpressions; const movementCount = biometricData.analysisStore.excessiveMovements;
+                const analysisData = { avgHr, avgBlink, avgJitter, avgShimmer, microCount, movementCount };
+                const fusionResult = performDataFusion(analysisData); let lieScore = fusionResult.lieScore;
+                biometricData.anomalyFlags = { heartRate: Math.abs(avgHr - baseline.heartRate) > 15, blinkRate: Math.abs(avgBlink - baseline.blinkRate) > 10, vocal: (avgJitter > baseline.vocalJitter + 1) || (avgShimmer > baseline.vocalShimmer + 2), movement: movementCount > 5, microExpression: microCount > 2 };
+                let details, conclusion, probability, probabilityLabel, outcome;
+                if (lieScore > 70) outcome = 'lie'; else if (lieScore > 45) outcome = 'stressed'; else if (lieScore > 30) outcome = 'hesitant'; else outcome = 'truth';
+                switch(outcome) { /* ... */ case 'lie': state.faceMeshState = 'lie'; ui.resultText.textContent = "INDIKASI KEBOHONGAN"; probability = Math.min(98, lieScore + 15); conclusion = `Analisis mendeteksi kombinasi stres fisiologis dan perilaku gelisah. **Peningkatan detak jantung**, **ketidakstabilan vokal**, dan **gerakan kepala berlebih** secara bersamaan menunjukkan adanya tekanan internal yang signifikan, seringkali diasosiasikan dengan upaya penipuan.`; break; case 'stressed': state.faceMeshState = 'stressed'; ui.resultText.textContent = "DI BAWAH TEKANAN"; probability = Math.min(98, lieScore + 10); conclusion = `Subjek menunjukkan tanda-tanda stres fisiologis yang jelas, terutama pada **detak jantung dan frekuensi kedipan**. Walaupun ini tidak secara langsung membuktikan kebohongan, ini menunjukkan bahwa pertanyaan yang diajukan menimbulkan respons emosional yang kuat atau membuat subjek merasa tidak nyaman.`; break; case 'hesitant': state.faceMeshState = 'hesitant'; ui.resultText.textContent = "SUBJEK RAGU-RAGU"; probability = Math.max(5, lieScore + 5); conclusion = `Data biometrik menunjukkan beberapa anomali ringan, terutama pada **stabilitas vokal dan gerakan minor**. Tidak ada tanda stres yang ekstrem, namun keraguan ini bisa mengindikasikan bahwa subjek tidak sepenuhnya yakin dengan jawabannya atau sedang memikirkan cara terbaik untuk merespons.`; break; default: state.faceMeshState = 'truth'; ui.resultText.textContent = "KEJUJURAN TERDETEKSI"; probability = Math.max(2, lieScore); conclusion = `Respons fisiologis dan perilaku subjek tetap konsisten dan stabil selama menjawab. Tidak terdeteksi adanya lonjakan stres atau kegelisahan yang signifikan. Data ini menunjukkan kemungkinan besar jawaban yang diberikan adalah jujur.`; break; }
+                if (probability > 75) { probabilityLabel = { text: "SANGAT TINGGI", color: "text-red-400" }; } else if (probability > 50) { probabilityLabel = { text: "TINGGI", color: "text-orange-400" }; } else if (probability > 25) { probabilityLabel = { text: "SEDANG", color: "text-yellow-400" }; } else { probabilityLabel = { text: "RENDAH", color: "text-green-400" }; }
+                const hrDeviation = avgHr - baseline.heartRate; const blinkDeviation = avgBlink - baseline.blinkRate;
+                details = { color: probabilityLabel.color, hrv: getMetricAssessment('hr', hrDeviation), blink: getMetricAssessment('blink', blinkDeviation), vocal: getMetricAssessment('vocal', avgJitter + avgShimmer), micro: microCount, movement: getMetricAssessment('movement', movementCount) };
+                ui.resultText.className = `text-center text-4xl font-bold tracking-widest font-orbitron ${details.color.replace('400', '500')} ${details.color.replace('text-', 'text-glow-')}`;
+                ui.mainCard.className = `bg-gray-800/50 backdrop-blur-sm border border-gray-700 rounded-2xl p-6 md:p-8 shadow-2xl transition-all duration-500 ${details.color.replace('text-yellow-400', 'card-glow-yellow').replace('text-red-400', 'card-glow-red').replace('text-green-400', 'card-glow-green').replace('text-orange-400', 'card-glow-orange')}`;
+                ui.detailsContent.innerHTML = getDetailHTML(details, {hr: avgHr, blink: avgBlink, jitter: avgJitter, shimmer: avgShimmer, movement: movementCount}); ui.conclusionText.textContent = conclusion; ui.probabilityText.textContent = `${Math.round(probability)}%`;
+                ui.probabilityLabel.textContent = probabilityLabel.text; ui.probabilityLabel.className = `text-center text-sm font-semibold ${probabilityLabel.color}`;
+                ui.probabilityBar.style.width = `${probability}%`; ui.probabilityBar.className = `h-2.5 rounded-full ${details.color.replace('text-yellow-400', 'bg-yellow-400').replace('text-red-400', 'bg-red-500').replace('text-green-400', 'bg-green-500').replace('text-orange-400', 'bg-orange-500')}`;
+                updateXAIDashboard(fusionResult.factors, biometricData.anomalyFlags);
+                setStatus("Analisis Selesai"); state.appState = 'ready'; ui.startButton.textContent = "Mulai Interogasi Baru"; ui.startButton.classList.remove('bg-red-600', 'hover:bg-red-500'); ui.startButton.classList.add('bg-blue-600', 'hover:bg-blue-500'); ui.startButton.disabled = false; ui.questionInput.disabled = false;
+            }
+            function getDetailHTML(values, data) { return `<div><strong class="${values.color}">Detak Jantung:</strong> ${Math.round(data.hr)} BPM <span class="font-semibold">(${values.hrv})</span></div><div><strong class="${values.color}">Frekuensi Kedipan:</strong> ${Math.round(data.blink)} kpm <span class="font-semibold">(${values.blink})</span></div><div><strong class="${values.color}">Ekspresi Mikro:</strong> ${values.micro} terdeteksi</div><div><strong class="${values.color}">Gerakan Kepala:</strong> ${values.movement} <span class="text-xs text-gray-400">(${data.movement}x)</span></div><div class="md:col-span-2"><strong class="${values.color}">Stabilitas Vokal:</strong> ${values.vocal} <span class="text-xs text-gray-400">(Jitter:${data.jitter.toFixed(1)}% Shimmer:${data.shimmer.toFixed(1)}%)</span></div>`; }
+            function mainButtonHandler() { switch (state.appState) { case 'idle': startProcess(); break; case 'ready': startProcess(); break; case 'listening': stopAndAnalyze(); break; } }
+            
+            const faceMesh = new FaceMesh({ locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}` });
+            faceMesh.setOptions({ maxNumFaces: 1, refineLandmarks: true, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
+            faceMesh.onResults(onResults);
+            
+            function initializeEnhancedFeatures() { ui.calibrateBtn.addEventListener('click', startBaselineCalibration); setupQuestionPresets(); ui.startButton.addEventListener('click', mainButtonHandler); log('Fitur enhanced v12.1 diinisialisasi', 'SUCCESS'); }
+            
+            setupCamera().then(() => {
+                log('Sistem Polygraph v12.1 online. Siap untuk interogasi.');
+                if (!baseline.established) { log('Peringatan: Baseline personal belum dikalibrasi. Akurasi mungkin terpengaruh.', 'WARN'); }
+                setStatus('Siap Untuk Interogasi'); state.appState = 'ready'; ui.startButton.disabled = false;
+                initializeEnhancedFeatures();
+                mainLoop();
+            });
+        });
+    </script>
+</body>
+</html>
