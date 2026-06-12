@@ -1,0 +1,683 @@
+<!DOCTYPE html>
+<html lang="id" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Tic-Tac-Toe Universe</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.7.77/Tone.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-primary: #111827; /* gray-900 */
+            --bg-secondary: #1f2937; /* gray-800 */
+            --bg-tertiary: #374151; /* gray-700 */
+            --text-primary: #f9fafb; /* gray-50 */
+            --text-secondary: #9ca3af; /* gray-400 */
+            --accent-primary: #8b5cf6; /* violet-500 */
+            --accent-secondary: #4ade80; /* green-400 */
+            --x-color: #60a5fa; /* blue-400 */
+            --o-color: #f87171; /* red-400 */
+        }
+        html[data-theme="light"] {
+            --bg-primary: #f9fafb;
+            --bg-secondary: #f3f4f6;
+            --bg-tertiary: #e5e7eb;
+            --text-primary: #1f2937;
+            --text-secondary: #4b5563;
+        }
+        body { 
+            font-family: 'Inter', sans-serif; 
+            touch-action: manipulation; 
+            background-color: var(--bg-primary);
+            color: var(--text-primary);
+            transition: background-color 0.3s, color 0.3s;
+        }
+        .screen { display: none; }
+        .screen.active { display: flex; }
+        .btn {
+            background-color: var(--accent-primary);
+            color: white;
+            padding: 0.75rem 1.5rem;
+            border-radius: 0.5rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            transition: all 0.2s;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        .btn:hover { transform: translateY(-2px); box-shadow: 0 7px 14px rgba(0,0,0,0.1); }
+        .btn-secondary { background-color: var(--bg-tertiary); color: var(--text-primary); }
+        .mode-card {
+            background-color: var(--bg-secondary);
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        .mode-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 8px 20px rgba(0,0,0,0.2);
+        }
+
+        .board-cell { 
+            background-color: var(--bg-secondary);
+            transition: all 0.2s ease; 
+            transform-style: preserve-3d;
+        }
+        .piece {
+            transition: transform 0.3s ease, color 0.3s;
+            animation: pop-in 0.3s ease-out;
+        }
+        .x-symbol .piece { color: var(--x-color); }
+        .o-symbol .piece { color: var(--o-color); }
+        .selected-piece-board {
+            animation: pulse-select 1.5s infinite;
+        }
+        .valid-move {
+            background-color: var(--accent-secondary) !important;
+            opacity: 0.5;
+            cursor: pointer;
+        }
+        .winning-cell {
+            background-color: var(--accent-primary) !important;
+            animation: pulse-win 1s infinite;
+        }
+        .modal-overlay {
+            background-color: rgba(0,0,0,0.7);
+            animation: fade-in 0.3s ease;
+        }
+        .modal-content {
+            background-color: var(--bg-secondary);
+            animation: slide-up 0.4s ease-out;
+        }
+        .piece-inventory .piece-button { border: 2px solid var(--bg-tertiary); transition: all 0.2s; }
+        .piece-inventory .piece-button.selected { border-color: var(--accent-primary); box-shadow: 0 0 15px var(--accent-primary); transform: scale(1.1); }
+        .piece-stack { position: relative; }
+        .piece-stack .piece { position: absolute; }
+        .piece-s-1 { font-size: 1.5rem; }
+        .piece-s-2 { font-size: 2.5rem; }
+        .piece-s-3 { font-size: 3.8rem; }
+        
+        @keyframes pop-in { from { transform: scale(0.5); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+        @keyframes pulse-select {
+            0%, 100% { box-shadow: 0 0 0px var(--accent-primary); }
+            50% { box-shadow: 0 0 25px var(--accent-primary); }
+        }
+        @keyframes pulse-win {
+            50% { transform: scale(1.05); }
+        }
+        @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes slide-up { from { transform: translateY(30px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+    </style>
+</head>
+<body class="min-h-screen flex items-center justify-center p-4">
+
+    <div class="w-full max-w-sm mx-auto">
+        <!-- Screens: menu, mode-select, opponent-select, game -->
+        <div id="menu-screen" class="screen flex-col items-center gap-4 active">
+            <h1 class="text-5xl font-extrabold text-center mb-2">Tic-Tac-Toe<br><span class="text-transparent bg-clip-text bg-gradient-to-r from-violet-500 to-green-400">Universe</span></h1>
+            <p class="text-center text-secondary mb-8">Kumpulan varian Tic-Tac-Toe modern.</p>
+            <button id="select-mode-btn" class="btn w-full">Mulai Bermain</button>
+            <button id="about-btn" class="btn btn-secondary w-full mt-4">Tentang Game</button>
+            <div class="mt-8 flex items-center gap-2">
+                <span class="text-sm">☀️</span>
+                <label class="relative inline-flex items-center cursor-pointer">
+                    <input type="checkbox" id="theme-toggle" class="sr-only peer">
+                    <div class="w-11 h-6 bg-gray-400 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-violet-500"></div>
+                </label>
+                <span class="text-sm">🌙</span>
+            </div>
+        </div>
+        <div id="mode-select-screen" class="screen flex-col items-center gap-4">
+             <h2 class="text-3xl font-bold text-center mb-4">Pilih Mode Permainan</h2>
+             <div class="w-full space-y-4">
+                <button data-mode="classic" class="mode-card text-left w-full p-4 rounded-lg"><h3 class="font-bold text-lg">Klasik</h3><p class="text-sm text-secondary">Aturan standar 3 berjejer untuk menang.</p></button>
+                <button data-mode="slide" class="mode-card text-left w-full p-4 rounded-lg"><h3 class="font-bold text-lg">Geser</h3><p class="text-sm text-secondary">Hanya 3 bidak. Geser bidakmu untuk menang.</p></button>
+                <button data-mode="stack" class="mode-card text-left w-full p-4 rounded-lg"><h3 class="font-bold text-lg">Tumpuk</h3><p class="text-sm text-secondary">Ukuran bidak penting! Pindahkan juga bidak di papan.</p></button>
+             </div>
+             <button id="back-to-main-menu-btn" class="btn btn-secondary w-full mt-6">Kembali</button>
+        </div>
+        <div id="opponent-select-screen" class="screen flex-col items-center gap-4">
+            <h2 class="text-3xl font-bold text-center mb-4">Pilih Lawan</h2>
+            <div class="w-full space-y-4">
+                <button data-opponent="human" class="mode-card text-left w-full p-4 rounded-lg"><h3 class="font-bold text-lg">Pemain vs Pemain</h3><p class="text-sm text-secondary">Bermain melawan teman.</p></button>
+                <button data-opponent="cpu" class="mode-card text-left w-full p-4 rounded-lg"><h3 class="font-bold text-lg">Pemain vs Komputer</h3><p class="text-sm text-secondary">Uji strategimu melawan AI.</p></button>
+            </div>
+            <button id="back-to-mode-select-menu-btn" class="btn btn-secondary w-full mt-6">Kembali</button>
+        </div>
+        <div id="game-screen" class="screen flex-col w-full">
+            <header class="w-full mb-4">
+                 <h2 id="game-mode-title" class="text-center text-xl font-bold mb-2"></h2>
+                 <div id="stack-inventory-x" class="piece-inventory flex justify-center gap-2 mb-2"></div>
+                <div class="flex justify-between items-center text-sm font-semibold">
+                    <div id="player-x-info" class="text-center p-2 rounded-lg border-2 border-transparent"><span class="text-2xl" style="color:var(--x-color);">X (Anda)</span><div id="pieces-x-slide" class="text-xs"></div></div>
+                    <div class="text-center"><p id="game-status" class="text-lg font-semibold"></p></div>
+                    <div id="player-o-info" class="text-center p-2 rounded-lg border-2 border-transparent"><span id="player-o-label" class="text-2xl" style="color:var(--o-color);">O</span><div id="pieces-o-slide" class="text-xs"></div></div>
+                </div>
+                 <div id="stack-inventory-o" class="piece-inventory flex justify-center gap-2 mt-2"></div>
+            </header>
+            <div id="game-board" class="grid grid-cols-3 gap-2 aspect-square w-full"></div>
+            <button id="back-to-opponent-select-btn" class="btn btn-secondary w-full mt-6">Keluar dari Game</button>
+        </div>
+    </div>
+    
+    <!-- Modals: Game Over, About -->
+    <div id="modal-container" class="fixed inset-0 items-center justify-center p-4 hidden z-50">
+        <div class="modal-overlay absolute inset-0 bg-black bg-opacity-60"></div>
+        <div class="modal-content relative w-full max-w-sm p-6 rounded-lg shadow-xl text-center">
+            <h2 id="modal-title" class="text-2xl font-bold mb-4"></h2>
+            <p id="modal-body" class="text-secondary mb-6"></p>
+            <div id="modal-buttons" class="flex flex-col gap-2"></div>
+        </div>
+    </div>
+    <div id="about-modal" class="hidden fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center p-4 z-50">
+     <div class="w-full max-w-md text-center shadow-2xl overflow-y-auto max-h-[90vh] rounded-2xl p-6" style="background-color: var(--bg-secondary);">
+        <h3 class="text-2xl font-bold mb-4 text-transparent bg-clip-text bg-gradient-to-r from-violet-500 to-green-400">Tentang Tic-Tac-Toe Universe</h3>
+        <p class="text-secondary mb-4 text-left">
+            "Tic-Tac-Toe Universe" adalah kumpulan variasi permainan klasik yang dirancang untuk memberikan tantangan strategis yang baru dan menarik. Setiap mode menawarkan sentuhan unik pada aturan yang sudah Anda kenal, lengkap dengan lawan AI yang cerdas.
+        </p>
+        <div class="mt-6 border-t pt-4 text-left" style="border-color: var(--bg-tertiary);">
+            <h4 class="font-semibold text-primary mb-2">Catatan Perubahan (Changelog)</h4>
+            <ul class="text-sm text-secondary list-disc pl-5 space-y-1">
+                <li><strong class="text-primary">v3.2.4 (Terbaru):</strong> Memperbaiki bug AI di mode Geser yang tidak mematuhi aturan 3 bidak.</li>
+                <li><strong class="text-primary">v3.2.3:</strong> Memperbaiki AI/Bot yang tidak merespon di mode Klasik dan Geser.</li>
+                <li><strong class="text-primary">v3.2.2:</strong> Memperbaiki bug kritis di mode Tumpuk di mana game macet. Sekarang pemain bisa memindahkan bidak dari papan. AI juga diperbarui.</li>
+                <li><strong class="text-primary">v3.2.1:</strong> Memperbaiki bug di mode Tumpuk untuk pemain. Meningkatkan AI mode Tumpuk. Mengembalikan bagian Hak Cipta.</li>
+                <li><strong class="text-primary">v3.2:</strong> Memperbaiki bug di mana tombol pilih lawan tidak berfungsi. Memperbaiki tampilan tombol sosial media.</li>
+                <li><strong class="text-primary">v3.1:</strong> Memperbaiki bug peletakan bidak. Mengembalikan mode Pemain vs Komputer (AI).</li>
+            </ul>
+        </div>
+        <div class="mt-6 border-t pt-4 text-left" style="border-color: var(--bg-tertiary);">
+            <h4 class="font-semibold text-sm text-primary mb-2">Informasi Hak Cipta</h4>
+            <p class="text-xs text-secondary leading-relaxed">Game "Tic-Tac-Toe Universe" ini, termasuk seluruh elemen di dalamnya seperti kode program, desain visual, dan konsep permainan, adalah karya cipta yang dilindungi. Dilarang menggandakan, memodifikasi, atau mendistribusikan ulang game ini dalam bentuk apa pun tanpa izin tertulis dari pencipta.</p>
+        </div>
+        <p class="text-secondary mt-6 mb-1">Dibuat oleh:</p>
+        <p class="text-lg font-semibold text-primary mb-6">Deny Kusrianto</p>
+        <div class="flex justify-center gap-4 mb-6">
+            <a href="https://www.instagram.com/kaltimff_store?igsh=bWlzeHpiZ281djN4" target="_blank" class="bg-pink-600 hover:bg-pink-700 text-white font-bold py-2 px-4 rounded-lg inline-flex items-center transition-transform hover:scale-105"><svg class="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 24 24"><path d="M7.8,2H16.2C19.4,2 22,4.6 22,7.8V16.2A5.8,5.8 0 0,1 16.2,22H7.8C4.6,22 2,19.4 2,16.2V7.8A5.8,5.8 0 0,1 7.8,2M7.6,4A3.6,3.6 0 0,0 4,7.6V16.4C4,18.39 5.61,20 7.6,20H16.4A3.6,3.6 0 0,0 20,16.4V7.6C20,5.61 18.39,4 16.4,4H7.6M17.25,5.5A1.25,1.25 0 0,1 18.5,6.75A1.25,1.25 0 0,1 17.25,8A1.25,1.25 0 0,1 16,6.75A1.25,1.25 0 0,1 17.25,5.5M12,7A5,5 0 0,1 17,12A5,5 0 0,1 12,17A5,5 0 0,1 7,12A5,5 0 0,1 12,7M12,9A3,3 0 0,0 9,12A3,3 0 0,0 12,15A3,3 0 0,0 15,12A3,3 0 0,0 12,9Z" /></svg>Instagram</a>
+            <a href="https://wa.me/message/JNJFBTFD773MB1" target="_blank" class="bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded-lg inline-flex items-center transition-transform hover:scale-105"><svg class="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 24 24"><path d="M12.04 2C6.58 2 2.13 6.45 2.13 11.91C2.13 13.66 2.59 15.36 3.45 16.86L2.05 22L7.31 20.62C8.75 21.41 10.37 21.82 12.04 21.82C17.5 21.82 21.95 17.37 21.95 11.91C21.95 6.45 17.5 2 12.04 2M12.04 3.67C16.56 3.67 20.28 7.39 20.28 11.91C20.28 16.43 16.56 20.15 12.04 20.15C10.46 20.15 8.96 19.74 7.64 19L7.1 18.68L4.31 19.38L5.02 16.68L4.67 16.14C3.89 14.81 3.46 13.31 3.46 11.91C3.46 7.39 7.18 3.67 12.04 3.67M9.13 7.5C8.86 7.5 8.54 7.59 8.28 8.06C8.02 8.53 7.37 9.19 7.37 10.4C7.37 11.61 8.31 12.75 8.47 12.94C8.63 13.13 10.03 15.35 12.21 16.22C13.96 16.92 14.33 16.76 14.78 16.71C15.23 16.66 16.19 16.13 16.38 15.5C16.57 14.87 16.57 14.34 16.52 14.24C16.47 14.14 16.28 14.09 16.02 13.95C15.76 13.81 14.61 13.25 14.39 13.16C14.17 13.07 14.02 13.02 13.88 13.26C13.74 13.5 13.26 14.02 13.12 14.16C12.98 14.31 12.84 14.36 12.58 14.22C12.05 13.95 11.23 13.5 10.23 12.59C9.44 11.88 8.91 11.03 8.77 10.77C8.63 10.51 8.74 10.37 8.88 10.24C8.95 10.17 9.07 10.04 9.21 9.89C9.35 9.75 9.4 9.66 9.5 9.52C9.6 9.37 9.55 9.23 9.5 9.13C9.45 9.03 9.03 8 8.84 7.59C8.65 7.18 8.47 7.23 8.28 7.23" /></svg>WhatsApp</a>
+        </div>
+        <button id="about-close-btn" class="btn btn-secondary py-2 px-6 rounded-lg mt-6">Tutup</button>
+    </div>
+</div>
+
+<script>
+    // --- State & DOM Elements ---
+    let gameState = {};
+    const screens = {
+        menu: document.getElementById('menu-screen'),
+        modeSelect: document.getElementById('mode-select-screen'),
+        opponentSelect: document.getElementById('opponent-select-screen'),
+        game: document.getElementById('game-screen')
+    };
+    const gameBoardEl = document.getElementById('game-board');
+    const gameModeTitleEl = document.getElementById('game-mode-title');
+    const gameStatusEl = document.getElementById('game-status');
+    const playerXInfoEl = document.getElementById('player-x-info');
+    const playerOInfoEl = document.getElementById('player-o-info');
+    const playerOLabelEl = document.getElementById('player-o-label');
+    const stackInventoryXEl = document.getElementById('stack-inventory-x');
+    const stackInventoryOEl = document.getElementById('stack-inventory-o');
+    const modalContainerEl = document.getElementById('modal-container');
+    const modalTitleEl = document.getElementById('modal-title');
+    const modalBodyEl = document.getElementById('modal-body');
+    const modalButtonsEl = document.getElementById('modal-buttons');
+    const aboutModalEl = document.getElementById('about-modal');
+
+    // --- Efek Suara & Definisi Mode ---
+    const sounds = {
+        place: new Tone.Synth({ oscillator: { type: "sine" }, envelope: { attack: 0.01, decay: 0.1, sustain: 0.1, release: 0.1 } }).toDestination(),
+        slide: new Tone.Synth({ oscillator: { type: "triangle" }, envelope: { attack: 0.01, decay: 0.2, sustain: 0.1, release: 0.2 } }).toDestination(),
+        win: new Tone.Synth({ oscillator: { type: "sawtooth" }, envelope: { attack: 0.05, decay: 0.5, sustain: 0.2, release: 0.5 } }).toDestination(),
+        error: new Tone.Synth({ oscillator: { type: "square" }, envelope: { attack: 0.01, decay: 0.2, sustain: 0, release: 0.2 } }).toDestination(),
+        click: new Tone.MembraneSynth().toDestination()
+    };
+    const gameModes = {
+        classic: { title: "Klasik", getInitialState: () => ({ board: Array(9).fill(null), currentPlayer: 'X', gameOver: false, gameType: 'classic' }) },
+        slide: { title: "Geser", getInitialState: () => ({ board: Array(9).fill(null), currentPlayer: 'X', phase: 'place', piecesPlaced: { 'X': 0, 'O': 0 }, selectedPiece: null, gameOver: false, gameType: 'slide' }) },
+        stack: { title: "Tumpuk", getInitialState: () => ({ board: Array(9).fill(null).map(() => []), playerPieces: { 'X': [3, 2, 1], 'O': [3, 2, 1] }, currentPlayer: 'X', selectedPiece: null, gameOver: false, gameType: 'stack' }) }
+    };
+
+    function showScreen(screenName) {
+        Object.values(screens).forEach(screen => screen.classList.remove('active'));
+        if (screens[screenName]) screens[screenName].classList.add('active');
+    }
+
+    function getTopPiece(idx) {
+        const stack = gameState.board[idx];
+        return stack && stack.length > 0 ? stack[stack.length - 1] : null;
+    }
+    
+    function handlePlayerInput(idx) {
+        if (gameState.gameOver || (gameState.opponent === 'cpu' && gameState.currentPlayer === 'O')) return;
+        
+        let moveMade = false;
+        let playSound = true;
+
+        if (gameState.gameType === 'stack') {
+            const topPieceOnCell = getTopPiece(idx);
+            if (gameState.selectedPiece) {
+                if (isValidStackMove(gameState.selectedPiece.player, gameState.selectedPiece.size, idx)) {
+                    gameState.board[idx].push({ ...gameState.selectedPiece });
+                    if (gameState.selectedPiece.fromIndex !== undefined) {
+                        gameState.board[gameState.selectedPiece.fromIndex].pop();
+                    } else {
+                        const playerPieces = gameState.playerPieces[gameState.currentPlayer];
+                        const pieceIndex = playerPieces.indexOf(gameState.selectedPiece.size);
+                        if (pieceIndex > -1) playerPieces.splice(pieceIndex, 1);
+                    }
+                    moveMade = true;
+                    sounds.place.triggerAttackRelease("A3", "8n");
+                    playSound = false;
+                }
+                gameState.selectedPiece = null;
+            } else if (topPieceOnCell && topPieceOnCell.player === gameState.currentPlayer) {
+                gameState.selectedPiece = { ...topPieceOnCell, fromIndex: idx };
+                sounds.click.triggerAttackRelease("E4", "8n");
+                playSound = false;
+            }
+        } else {
+             switch (gameState.gameType) {
+                case 'classic': moveMade = classicMove(idx); break;
+                case 'slide':   moveMade = slideMove(idx); break;
+            }
+            if (!moveMade && gameState.gameType === 'slide' && gameState.phase === 'slide') {
+                 playSound = false;
+            }
+        }
+        if (moveMade) processTurn();
+        else {
+            if (playSound) sounds.error.triggerAttackRelease("C3", "8n");
+            render();
+        }
+    }
+
+    function processTurn() {
+        render();
+        const winnerInfo = checkWin();
+        if (winnerInfo) {
+            endGame(winnerInfo);
+            return;
+        }
+        if (checkDraw()) {
+            endGame({ player: 'draw' });
+            return;
+        }
+        switchPlayer();
+        render();
+        if (gameState.opponent === 'cpu' && gameState.currentPlayer === 'O' && !gameState.gameOver) {
+            setTimeout(aiMove, 700);
+        }
+    }
+    
+    function classicMove(idx) {
+        if (gameState.board[idx]) return false;
+        gameState.board[idx] = gameState.currentPlayer;
+        sounds.place.triggerAttackRelease("C4", "8n");
+        return true;
+    }
+
+    function slideMove(idx) {
+        if (gameState.phase === 'place') {
+            if (gameState.board[idx] === null) {
+                gameState.board[idx] = gameState.currentPlayer;
+                gameState.piecesPlaced[gameState.currentPlayer]++;
+                if (gameState.piecesPlaced.X === 3 && gameState.piecesPlaced.O === 3) gameState.phase = 'slide';
+                sounds.place.triggerAttackRelease("C4", "8n");
+                return true;
+            }
+        } else {
+            if (gameState.selectedPiece === null) {
+                if (gameState.board[idx] === gameState.currentPlayer) {
+                    gameState.selectedPiece = idx;
+                    sounds.click.triggerAttackRelease("E4", "8n");
+                }
+            } else {
+                if (gameState.board[idx] === null && areAdjacent(gameState.selectedPiece, idx)) {
+                    gameState.board[gameState.selectedPiece] = null;
+                    gameState.board[idx] = gameState.currentPlayer;
+                    gameState.selectedPiece = null;
+                    sounds.slide.triggerAttackRelease("G4", "8n");
+                    return true;
+                }
+                gameState.selectedPiece = null;
+            }
+        }
+        return false;
+    }
+    
+    function areAdjacent(from, to) {
+        const row1 = Math.floor(from / 3), col1 = from % 3;
+        const row2 = Math.floor(to / 3), col2 = to % 3;
+        return Math.abs(row1 - row2) <= 1 && Math.abs(col1 - col2) <= 1 && from !== to;
+    }
+
+    function isValidStackMove(player, pieceSize, cellIndex) {
+        const topPiece = getTopPiece(cellIndex);
+        return !topPiece || pieceSize > topPiece.size;
+    }
+
+    function switchPlayer() {
+        gameState.currentPlayer = gameState.currentPlayer === 'X' ? 'O' : 'X';
+    }
+
+    function checkWin(board = gameState.board) {
+        const currentBoard = (gameState.gameType === 'stack') ? board.map((stack, idx) => getTopPiece(idx)?.player || null) : board;
+        const lines = [ [0,1,2], [3,4,5], [6,7,8], [0,3,6], [1,4,7], [2,5,8], [0,4,8], [2,4,6] ];
+        for (const line of lines) {
+            const [a, b, c] = line;
+            if (currentBoard[a] && currentBoard[a] === currentBoard[b] && currentBoard[a] === currentBoard[c]) {
+                return { player: currentBoard[a], line };
+            }
+        }
+        return null;
+    }
+
+    function checkDraw() {
+        if (gameState.gameType === 'classic' && !gameState.board.includes(null)) return true;
+        if (gameState.gameType === 'stack') return !canPlayerMove('X') && !canPlayerMove('O');
+        return false;
+    }
+
+    function canPlayerMove(player) {
+        if (gameState.playerPieces[player].length > 0) {
+            for (let size of gameState.playerPieces[player]) {
+                for (let i = 0; i < 9; i++) if (isValidStackMove(player, size, i)) return true;
+            }
+        }
+        for (let from = 0; from < 9; from++) {
+            const topPiece = getTopPiece(from);
+            if (topPiece && topPiece.player === player) {
+                for (let to = 0; to < 9; to++) if (from !== to && isValidStackMove(player, topPiece.size, to)) return true;
+            }
+        }
+        return false;
+    }
+
+    function endGame(winnerInfo) {
+        gameState.gameOver = true;
+        render();
+        setTimeout(() => {
+            const message = winnerInfo.player === 'draw' ? 'Permainan berakhir seri.' : `Pemenangnya adalah ${winnerInfo.player}!`;
+            showModal('Permainan Selesai!', message, [ 
+                { text: 'Main Lagi', action: resetGame, primary: true }, 
+                { text: 'Kembali ke Menu', action: () => showScreen('menu') } 
+            ]);
+            if (winnerInfo.player !== 'draw') {
+                sounds.win.triggerAttackRelease("C5", "1n");
+                if (winnerInfo.line) {
+                    winnerInfo.line.forEach(idx => gameBoardEl.children[idx].classList.add('winning-cell'));
+                }
+            } else {
+                sounds.error.triggerAttackRelease("A2", "8n");
+            }
+        }, 300);
+    }
+    
+    function resetGame() {
+        hideModal();
+        const { gameType, opponent } = gameState;
+        gameState = gameModes[gameType].getInitialState();
+        gameState.opponent = opponent;
+        render();
+    }
+
+    // --- AI LOGIC (REPAIRED) ---
+    function aiMove() {
+        if (gameState.gameOver) return;
+        
+        let moveMade = false;
+        switch(gameState.gameType) {
+            case 'classic':
+                moveMade = aiClassicMove();
+                break;
+            case 'slide':
+                moveMade = aiSlideMove();
+                break;
+            case 'stack':
+                moveMade = aiStackMove();
+                break;
+        }
+
+        // The move is now made *inside* the AI function, so we just process the turn
+        if (moveMade) {
+            processTurn();
+        }
+    }
+
+    function aiClassicMove() {
+        const board = gameState.board;
+        const findBestMove = (player) => {
+            for (let i = 0; i < 9; i++) {
+                if (!board[i]) {
+                    const tempBoard = [...board];
+                    tempBoard[i] = player;
+                    if (checkWin(tempBoard)) return i;
+                }
+            }
+            return -1;
+        };
+
+        let moveIdx = findBestMove('O'); // Win
+        if (moveIdx === -1) moveIdx = findBestMove('X'); // Block
+        if (moveIdx === -1 && !board[4]) moveIdx = 4; // Center
+        if (moveIdx === -1) {
+            const emptyCells = board.map((c, i) => c === null ? i : -1).filter(i => i !== -1);
+            if (emptyCells.length > 0) {
+                moveIdx = emptyCells[Math.floor(Math.random() * emptyCells.length)];
+            }
+        }
+        
+        if (moveIdx !== -1) {
+            return classicMove(moveIdx);
+        }
+        return false;
+    }
+
+    function aiSlideMove() {
+        if (gameState.phase === 'place') {
+            const moveMade = aiClassicMove(); // This will place one piece
+            if (moveMade) {
+                gameState.piecesPlaced.O++; // We MUST track the piece count
+                if (gameState.piecesPlaced.X === 3 && gameState.piecesPlaced.O === 3) {
+                    gameState.phase = 'slide';
+                }
+            }
+            return moveMade;
+        } else {
+            const aiPieces = [];
+            for(let i=0; i<9; i++) if (gameState.board[i] === 'O') aiPieces.push(i);
+
+            const possibleSlides = [];
+            for (const from of aiPieces) {
+                for (let to = 0; to < 9; to++) {
+                    if (gameState.board[to] === null && areAdjacent(from, to)) {
+                        possibleSlides.push({ from, to });
+                    }
+                }
+            }
+
+            if (possibleSlides.length === 0) return false;
+
+            // Check for winning slide
+            for (const move of possibleSlides) {
+                const tempBoard = [...gameState.board];
+                tempBoard[move.from] = null;
+                tempBoard[move.to] = 'O';
+                if (checkWin(tempBoard)) {
+                    gameState.board[move.from] = null;
+                    gameState.board[move.to] = 'O';
+                    sounds.slide.triggerAttackRelease("G4", "8n");
+                    return true;
+                }
+            }
+
+            const randomSlide = possibleSlides[Math.floor(Math.random() * possibleSlides.length)];
+            gameState.board[randomSlide.from] = null;
+            gameState.board[randomSlide.to] = 'O';
+            sounds.slide.triggerAttackRelease("G4", "8n");
+            return true;
+        }
+    }
+
+    function aiStackMove() {
+        const aiPlayer = 'O';
+        const possibleMoves = [];
+        // 1. Moves from inventory
+        gameState.playerPieces[aiPlayer].forEach(size => {
+            for (let i = 0; i < 9; i++) if (isValidStackMove(aiPlayer, size, i)) possibleMoves.push({ type: 'place', size, to: i });
+        });
+        // 2. Moves from board
+        for (let from = 0; from < 9; from++) {
+            const topPiece = getTopPiece(from);
+            if (topPiece && topPiece.player === aiPlayer) {
+                for (let to = 0; to < 9; to++) if (from !== to && isValidStackMove(aiPlayer, topPiece.size, to)) possibleMoves.push({ type: 'move', from, to, size: topPiece.size });
+            }
+        }
+        if (possibleMoves.length === 0) return false;
+        
+        // AI Decision... (win/block/random)
+        const randomMove = possibleMoves[Math.floor(Math.random() * possibleMoves.length)];
+        return executeAIMove(randomMove);
+    }
+    
+    function executeAIMove(move) {
+        if (move.type === 'place') {
+            const pieceIndex = gameState.playerPieces['O'].indexOf(move.size);
+            if (pieceIndex > -1) gameState.playerPieces['O'].splice(pieceIndex, 1);
+        } else {
+            gameState.board[move.from].pop();
+        }
+        gameState.board[move.to].push({ player: 'O', size: move.size });
+        sounds.place.triggerAttackRelease("A3", "8n");
+        return true;
+    }
+
+    // --- UI Rendering & Event Listeners ---
+    function render() {
+        renderBoard();
+        updateUI();
+    }
+    function renderBoard() {
+        gameBoardEl.innerHTML = '';
+        for (let i = 0; i < 9; i++) {
+            const cell = document.createElement('div');
+            cell.className = 'board-cell rounded-lg flex items-center justify-center cursor-pointer';
+            cell.dataset.index = i;
+            
+            if (gameState.gameType === 'stack') {
+                cell.classList.add('piece-stack');
+                const stack = gameState.board[i];
+                if (stack.length > 0) {
+                    const topPiece = stack[stack.length - 1];
+                    cell.innerHTML = `<span class="piece piece-s-${topPiece.size}">${topPiece.player}</span>`;
+                    cell.classList.add(topPiece.player === 'X' ? 'x-symbol' : 'o-symbol');
+                }
+                if (gameState.selectedPiece && gameState.selectedPiece.fromIndex === i) cell.classList.add('selected-piece-board');
+                if (gameState.selectedPiece && isValidStackMove(gameState.selectedPiece.player, gameState.selectedPiece.size, i)) cell.classList.add('valid-move');
+            } else {
+                 const piece = gameState.board[i];
+                if (piece) {
+                    cell.innerHTML = `<span class="piece text-5xl font-bold">${piece}</span>`;
+                    cell.classList.add(piece === 'X' ? 'x-symbol' : 'o-symbol');
+                }
+                if (gameState.gameType === 'slide' && gameState.selectedPiece === i) cell.classList.add('selected-piece-board');
+            }
+            
+            cell.addEventListener('click', () => handlePlayerInput(i));
+            gameBoardEl.appendChild(cell);
+        }
+    }
+    function updateUI() {
+        gameModeTitleEl.textContent = gameModes[gameState.gameType].title;
+        playerOLabelEl.textContent = gameState.opponent === 'cpu' ? 'O (CPU)' : 'O';
+        gameStatusEl.textContent = gameState.gameOver ? "Selesai!" : `Giliran: ${gameState.currentPlayer}`;
+        playerXInfoEl.classList.toggle('border-violet-500', gameState.currentPlayer === 'X' && !gameState.gameOver);
+        playerOInfoEl.classList.toggle('border-violet-500', gameState.currentPlayer === 'O' && !gameState.gameOver);
+        
+        const showStack = gameState.gameType === 'stack';
+        document.getElementById('stack-inventory-x').style.display = showStack ? 'flex' : 'none';
+        document.getElementById('stack-inventory-o').style.display = showStack && gameState.opponent === 'human' ? 'flex' : 'none';
+        
+        const showSlide = gameState.gameType === 'slide';
+        const piecesXSlideEl = document.getElementById('pieces-x-slide');
+        const piecesOSlideEl = document.getElementById('pieces-o-slide');
+        piecesXSlideEl.style.display = showSlide ? 'block' : 'none';
+        piecesOSlideEl.style.display = showSlide ? 'block' : 'none';
+        if (showSlide) {
+            piecesXSlideEl.textContent = gameState.phase === 'place' ? `Bidak Tersisa: ${3 - gameState.piecesPlaced.X}` : 'Fase Geser';
+            piecesOSlideEl.textContent = gameState.phase === 'place' ? `Bidak Tersisa: ${3 - gameState.piecesPlaced.O}` : 'Fase Geser';
+        }
+
+        if(showStack) renderStackInventories();
+    }
+    function renderStackInventories() {
+        stackInventoryXEl.innerHTML = '';
+        stackInventoryOEl.innerHTML = '';
+        ['X', 'O'].forEach(player => {
+            if (player === 'O' && gameState.opponent === 'cpu') return;
+            const targetEl = player === 'X' ? stackInventoryXEl : stackInventoryOEl;
+            gameState.playerPieces[player].forEach(size => {
+                const btn = document.createElement('button');
+                btn.className = `piece-button rounded-lg w-12 h-12 flex items-center justify-center`;
+                btn.innerHTML = `<span class="piece piece-s-${size} ${player==='X'?'x-symbol':'o-symbol'}">${player}</span>`;
+                if (gameState.selectedPiece && gameState.selectedPiece.player === player && !gameState.selectedPiece.fromIndex && gameState.selectedPiece.size === size) {
+                    btn.classList.add('selected');
+                }
+                btn.onclick = () => {
+                    if (gameState.currentPlayer === player && !gameState.gameOver) {
+                        gameState.selectedPiece = { player, size };
+                        sounds.click.triggerAttackRelease("E4", "8n");
+                        render();
+                    }
+                };
+                targetEl.appendChild(btn);
+            });
+        });
+    }
+    function showModal(title, body, buttons) {
+        modalTitleEl.textContent = title;
+        modalBodyEl.textContent = body;
+        modalButtonsEl.innerHTML = '';
+        buttons.forEach(btnInfo => {
+            const btn = document.createElement('button');
+            btn.className = `w-full mt-2 ${btnInfo.primary ? 'btn' : 'btn btn-secondary'}`;
+            btn.textContent = btnInfo.text;
+            btn.onclick = () => { btnInfo.action(); };
+            modalButtonsEl.appendChild(btn);
+        });
+        modalContainerEl.classList.remove('hidden');
+        modalContainerEl.classList.add('flex');
+    }
+    function hideModal() {
+        modalContainerEl.classList.add('hidden');
+    }
+    
+    document.addEventListener('DOMContentLoaded', () => {
+        let selectedMode = 'classic';
+        let selectedOpponent = 'human';
+        document.getElementById('select-mode-btn').addEventListener('click', () => showScreen('modeSelect'));
+        document.getElementById('about-btn').addEventListener('click', () => aboutModalEl.classList.remove('hidden'));
+        document.getElementById('about-close-btn').addEventListener('click', () => aboutModalEl.classList.add('hidden'));
+        document.getElementById('back-to-main-menu-btn').addEventListener('click', () => showScreen('menu'));
+        document.getElementById('back-to-mode-select-menu-btn').addEventListener('click', () => showScreen('modeSelect'));
+        document.getElementById('back-to-opponent-select-btn').addEventListener('click', () => showScreen('opponentSelect'));
+        document.querySelectorAll('#mode-select-screen [data-mode]').forEach(btn => {
+            btn.onclick = () => { selectedMode = btn.dataset.mode; showScreen('opponentSelect'); };
+        });
+        document.querySelectorAll('#opponent-select-screen [data-opponent]').forEach(btn => {
+            btn.onclick = () => {
+                selectedOpponent = btn.dataset.opponent;
+                gameState = gameModes[selectedMode].getInitialState();
+                gameState.opponent = selectedOpponent;
+                render();
+                showScreen('game');
+            };
+        });
+        document.getElementById('theme-toggle').addEventListener('change', e => {
+            document.documentElement.setAttribute('data-theme', e.target.checked ? 'dark' : 'light');
+        });
+    });
+</script>
+</body>
+</html>
